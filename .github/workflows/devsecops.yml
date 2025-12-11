@@ -1,0 +1,67 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  devsecops:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    ############################################
+    # 1. Analyse SonarQube
+    ############################################
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: SonarQube scan
+      uses: sonarsource/sonarqube-scan-action@v2
+      with:
+        args: >
+          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+          -Dsonar.host.url=http://localhost:9000
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+    ############################################
+    # 2. CodeQL
+    ############################################
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: python
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+
+    ############################################
+    # 3. Bandit — SAST Python
+    ############################################
+    - name: Install Bandit
+      run: pip install bandit
+
+    - name: Run Bandit
+      run: bandit -r api/ -f json -o bandit-report.json
+
+    ############################################
+    # 4. Trivy — Scan Dockerfile + image
+    ############################################
+    - name: Install Trivy
+      run: |
+        sudo apt-get install wget -y
+        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.0_Linux-64bit.deb
+        sudo dpkg -i trivy_0.50.0_Linux-64bit.deb
+
+    - name: Scan dependencies
+      run: trivy fs --severity HIGH,CRITICAL .
+
+    - name: Build Docker image
+      run: docker build -t devsecops-lab ./docker
+
+    - name: Scan Docker image
+      run: trivy image devsecops-lab
