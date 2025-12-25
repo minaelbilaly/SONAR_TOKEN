@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import sqlite3
 import subprocess
 import hashlib
@@ -6,6 +6,8 @@ import os
 import ast
 
 app = Flask(__name__)
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -16,7 +18,6 @@ def login():
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
 
-    # ✅ Requête préparée (anti SQL injection)
     cursor.execute(
         "SELECT * FROM users WHERE username=? AND password=?",
         (username, password)
@@ -26,59 +27,50 @@ def login():
     conn.close()
 
     if result:
-        return {"status": "success", "user": username}
-    return {"status": "error", "message": "Invalid credentials"}, 401
+        return jsonify(status="success", user=username)
+
+    return jsonify(status="error", message="Invalid credentials"), 401
 
 
 @app.route("/ping", methods=["POST"])
 def ping():
-    host = request.json.get("host", "")
-    # ✅ Pas de shell=True
+    data = request.get_json(force=True)
+    host = data.get("host", "")
     cmd = ["ping", "-c", "1", host]
-    output = subprocess.check_output(cmd, timeout=3)
-    return {"output": output.decode()}
+    output = subprocess.check_output(cmd, timeout=5)
+    return jsonify(output=output.decode())
 
 
 @app.route("/compute", methods=["POST"])
 def compute():
-    expression = request.json.get("expression", "")
+    data = request.get_json(force=True)
+    expression = data.get("expression", "")
 
     try:
-        # ✅ Remplacement de eval par ast.literal_eval
-        result = ast.literal_eval(expression)
+        node = ast.parse(expression, mode="eval")
+        if not isinstance(node.body, (ast.BinOp, ast.Constant)):
+            raise ValueError("Invalid expression")
+        result = eval(compile(node, "<ast>", "eval"), {}, {})
     except Exception:
-        return {"error": "Invalid expression"}, 400
+        return jsonify(error="Invalid expression"), 400
 
-    return {"result": result}
+    return jsonify(result=result)
 
 
 @app.route("/hash", methods=["POST"])
 def hash_password():
-    pwd = request.json.get("password", "")
-    # ✅ SHA256 OK
+    data = request.get_json(force=True)
+    pwd = data.get("password", "")
     hashed = hashlib.sha256(pwd.encode()).hexdigest()
-    return {"sha256": hashed}
-
-
-@app.route("/readfile", methods=["POST"])
-def readfile():
-    filename = request.json.get("filename", "")
-
-    # ✅ Protection contre path traversal
-    if ".." in filename or filename.startswith("/"):
-        return {"error": "Invalid filename"}, 400
-
-    with open(filename, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    return {"content": content}
+    return jsonify(sha256=hashed)
 
 
 @app.route("/hello", methods=["GET"])
 def hello():
-    return {"message": "Secure DevSecOps API"}
+    return jsonify(message="Welcome to the DevSecOps secure API")
 
 
 if __name__ == "__main__":
-    # ❌ debug désactivé
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # ✅ Sécurisé : localhost par défaut
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    app.run(host=host, port=5000, debug=False)
