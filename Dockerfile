@@ -1,12 +1,11 @@
-FROM python:3.9
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# On copie les fichiers du dossier "api" dans l'image
-COPY api/ .
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installer Flask
-RUN pip install flask
+COPY . .
 
 EXPOSE 5000
 

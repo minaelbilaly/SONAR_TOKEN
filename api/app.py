@@ -3,79 +3,82 @@ import sqlite3
 import subprocess
 import hashlib
 import os
+import ast
 
 app = Flask(__name__)
-SECRET_KEY = "dev-secret-key-12345"
 
 @app.route("/login", methods=["POST"])
 def login():
-    username = request.json.get("username")
-    password = request.json.get("password")
+    data = request.get_json(force=True)
+    username = data.get("username", "")
+    password = data.get("password", "")
 
     conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
 
-    # ⚠️ Vulnérable (SQL injection) mais Bandit ne le détecte pas
-    # À corriger si besoin : use prepared statements
-    query = "SELECT * FROM users WHERE username=? AND password=?"
-    cursor.execute(query, (username, password))
+    # ✅ Requête préparée (anti SQL injection)
+    cursor.execute(
+        "SELECT * FROM users WHERE username=? AND password=?",
+        (username, password)
+    )
 
     result = cursor.fetchone()
+    conn.close()
+
     if result:
         return {"status": "success", "user": username}
-    return {"status": "error", "message": "Invalid credentials"}
+    return {"status": "error", "message": "Invalid credentials"}, 401
 
 
 @app.route("/ping", methods=["POST"])
 def ping():
     host = request.json.get("host", "")
-    # ✅ FIX: pas de shell=True
+    # ✅ Pas de shell=True
     cmd = ["ping", "-c", "1", host]
-    output = subprocess.check_output(cmd)
+    output = subprocess.check_output(cmd, timeout=3)
     return {"output": output.decode()}
 
 
 @app.route("/compute", methods=["POST"])
 def compute():
-    expression = request.json.get("expression", "1+1")
-    # ⚠️ eval est dangereux → Bandit peut aussi détecter
-    # Exemple simple sécurisé :
+    expression = request.json.get("expression", "")
+
     try:
-        safe = eval(expression, {"__builtins__": {}}, {})
+        # ✅ Remplacement de eval par ast.literal_eval
+        result = ast.literal_eval(expression)
     except Exception:
-        return {"error": "Invalid expression"}
-    return {"result": safe}
+        return {"error": "Invalid expression"}, 400
+
+    return {"result": result}
 
 
 @app.route("/hash", methods=["POST"])
 def hash_password():
-    pwd = request.json.get("password", "admin")
-    # ✅ FIX : MD5 → SHA256
+    pwd = request.json.get("password", "")
+    # ✅ SHA256 OK
     hashed = hashlib.sha256(pwd.encode()).hexdigest()
     return {"sha256": hashed}
 
 
 @app.route("/readfile", methods=["POST"])
 def readfile():
-    filename = request.json.get("filename", "test.txt")
-    with open(filename, "r") as f:
+    filename = request.json.get("filename", "")
+
+    # ✅ Protection contre path traversal
+    if ".." in filename or filename.startswith("/"):
+        return {"error": "Invalid filename"}, 400
+
+    with open(filename, "r", encoding="utf-8") as f:
         content = f.read()
+
     return {"content": content}
-
-
-@app.route("/debug", methods=["GET"])
-def debug():
-    return {
-        "debug": True,
-        "secret_key": SECRET_KEY,
-        "environment": dict(os.environ)
-    }
 
 
 @app.route("/hello", methods=["GET"])
 def hello():
-    return {"message": "Welcome to the DevSecOps vulnerable API"}
+    return {"message": "Secure DevSecOps API"}
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    # ❌ debug désactivé
+    app.run(host="0.0.0.0", port=5000, debug=False)
