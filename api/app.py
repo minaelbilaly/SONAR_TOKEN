@@ -9,6 +9,7 @@ app = Flask(__name__)
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
 
+
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json(force=True)
@@ -46,11 +47,9 @@ def compute():
     data = request.get_json(force=True)
     expression = data.get("expression", "")
 
+    # ✅ Sécurisé : pas de eval
     try:
-        node = ast.parse(expression, mode="eval")
-        if not isinstance(node.body, (ast.BinOp, ast.Constant)):
-            raise ValueError("Invalid expression")
-        result = eval(compile(node, "<ast>", "eval"), {}, {})
+        result = ast.literal_eval(expression)
     except Exception:
         return jsonify(error="Invalid expression"), 400
 
@@ -71,6 +70,5 @@ def hello():
 
 
 if __name__ == "__main__":
-    # ✅ Sécurisé : localhost par défaut
     host = os.environ.get("FLASK_HOST", "127.0.0.1")
     app.run(host=host, port=5000, debug=False)
