@@ -1,74 +1,49 @@
-from flask import Flask, request, jsonify
-import sqlite3
-import subprocess
+from flask import Flask, request
 import hashlib
-import os
-import ast
+import subprocess
 
 app = Flask(__name__)
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
+# Mot de passe en dur (mauvaise pratique)
+ADMIN_PASSWORD = "123456"
+
+# Cryptographie faible (MD5)
+def hash_password(password):
+    return hashlib.md5(password.encode()).hexdigest()
 
 
-@app.route("/login", methods=["POST"])
+@app.route("/login")
 def login():
-    data = request.get_json(force=True)
-    username = data.get("username", "")
-    password = data.get("password", "")
+    username = request.args.get("username")
+    password = request.args.get("password")
 
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    # Authentification faible
+    if username == "admin" and hash_password(password) == hash_password(ADMIN_PASSWORD):
+        return "Logged in"
 
-    cursor.execute(
-        "SELECT * FROM users WHERE username=? AND password=?",
-        (username, password)
-    )
-
-    result = cursor.fetchone()
-    conn.close()
-
-    if result:
-        return jsonify(status="success", user=username)
-
-    return jsonify(status="error", message="Invalid credentials"), 401
+    return "Invalid credentials"
 
 
-@app.route("/ping", methods=["POST"])
+@app.route("/ping")
 def ping():
-    data = request.get_json(force=True)
-    host = data.get("host", "")
-    cmd = ["ping", "-c", "1", host]
-    output = subprocess.check_output(cmd, timeout=5)
-    return jsonify(output=output.decode())
+    host = request.args.get("host", "localhost")
+
+    # Injection de commande (shell=True)
+    result = subprocess.check_output(
+        f"ping -c 1 {host}",
+        shell=True
+    )
+    return result
 
 
-@app.route("/compute", methods=["POST"])
-def compute():
-    data = request.get_json(force=True)
-    expression = data.get("expression", "")
-
-    # ✅ Sécurisé : pas de eval
-    try:
-        result = ast.literal_eval(expression)
-    except Exception:
-        return jsonify(error="Invalid expression"), 400
-
-    return jsonify(result=result)
-
-
-@app.route("/hash", methods=["POST"])
-def hash_password():
-    data = request.get_json(force=True)
-    pwd = data.get("password", "")
-    hashed = hashlib.sha256(pwd.encode()).hexdigest()
-    return jsonify(sha256=hashed)
-
-
-@app.route("/hello", methods=["GET"])
+@app.route("/hello")
 def hello():
-    return jsonify(message="Welcome to the DevSecOps secure API")
+    name = request.args.get("name", "user")
+
+    # XSS potentiel
+    return f"<h1>Hello {name}</h1>"
 
 
 if __name__ == "__main__":
-    host = os.environ.get("FLASK_HOST", "127.0.0.1")
-    app.run(host=host, port=5000, debug=False)
+    # Debug activé
+    app.run(debug=True)
